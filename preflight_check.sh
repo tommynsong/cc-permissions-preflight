@@ -596,16 +596,15 @@ aws_organization_check() {
     echo "- ACCOUNT ID: $ACCOUNT_ID"
     echo "- Organization Master ACCOUNT ID: $ORG_ID"
     echo
+    echo "Make sure these services are active in your AWS Organization:"
+    echo "- AWS Account Management"
+    echo "- AWS CloudFormation StackSets"
+    echo "- CloudTrail"
+    echo
+    echo "Make sure you have a service-linked role for CloudTrail."
 
     if [ ${#DENIED_ACTIONS[@]} -eq 0 ]; then
         echo -e "${GREEN}You have the required permissions.${NC}"
-        echo
-        echo "Make sure these services are active in your AWS Organization:"
-        echo "- AWS Account Management"
-        echo "- AWS CloudFormation StackSets"
-        echo "- CloudTrail"
-        echo
-        echo "Make sure you have a service-linked role for CloudTrail."
     else
         echo -e "${RED}Missing permissions:${NC}"
         for PERM in "${DENIED_ACTIONS[@]}"; do
