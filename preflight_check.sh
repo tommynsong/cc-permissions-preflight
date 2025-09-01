@@ -1287,7 +1287,7 @@ gcp_org_check() {
         echo -e "${GREEN}Permissions OK${NC} — all required GCP organization permissions are granted."
         printf '  - %s\n' "${req_perms[@]}"
         echo
-        echo "You can Onboard this GCP Orgnazation to Cortex Cloud."
+        echo "You can onboard this GCP organization to Cortex Cloud."
         return 0
     else
         echo -e "${RED}Missing organization permissions:${NC}"
