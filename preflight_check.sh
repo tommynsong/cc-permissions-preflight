@@ -1090,7 +1090,7 @@ gcp_project_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection enaabled" || echo " - Audit Log Collection enabled"
+    (( audts == 0 )) && echo " - Audit Log Collection disabled" || echo " - Audit Log Collection enabled"
     echo
     echo "Scope: $PROJECT_ID"
     echo
