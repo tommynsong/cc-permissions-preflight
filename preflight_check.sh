@@ -560,7 +560,7 @@ aws_organization_check() {
     case $aws_features in
         y)
             aws_org_actions=("${aws_org_actions[@]}" "${PERMISSIONS_AWS_ORG_FEATURES[@]}")
-            $feats=1
+            feats=1
             ;;
         n)
             ;;
