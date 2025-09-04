@@ -414,7 +414,7 @@ aws_account_check() {
     local audts=0
     local feats=0
 
-    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
+    echo "Are you enabling - Audit Log Collection (CloudTrail)?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     case $audit_logs in
         y|Y)
@@ -425,7 +425,7 @@ aws_account_check() {
 
     echo 
     echo "Are you enabling at least one of the following features?"
-    echo " - Data security posture management"
+    echo " - Data security posture management (DSPM)"
     echo " - Registry scanning"
     echo " - Serverless function scanning"
 
@@ -440,6 +440,7 @@ aws_account_check() {
     echo
 
     # Check each action
+    print_header "Checking Required Permissions"
     for ACTION in "${aws_single_actions[@]}"; do
         RESULT=$(aws iam simulate-principal-policy \
             --policy-source-arn "$ENTITY_ARN" \
@@ -461,18 +462,19 @@ aws_account_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
-    (( feats == 0 )) && echo "- DSPM, Registry Scanning and Serverless function scanning disabled." || echo "DSPM, Registry Scanning or/and Serverless function Scanning enabled."
+    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
+    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning or/and Serverless function Scanning enabled."
     echo
-    echo "- Identity ARN: $IDENTITY_ARN"
-    echo "- ACCOUNT ID: $ACCOUNT_ID"
+    echo "This identity was checked:"
+    echo " - Identity ARN: $IDENTITY_ARN"
+    echo " - ACCOUNT ID: $ACCOUNT_ID"
     echo
     if [ ${#DENIED_ACTIONS[@]} -eq 0 ]; then
-        echo -e "${GREEN}You have the required permissions.${NC}"
+        echo -e "${GREEN}Verdict: You have the required permissions.${NC}"
     else
-        echo -e "${RED} Missing permissions:${NC}"
+        echo -e "${RED}Verdict: You are missing these permissions:${NC}"
         for PERM in "${DENIED_ACTIONS[@]}"; do
-            echo "   - $PERM"
+            echo " - $PERM"
         done
         echo 
         echo "Please contact an administrator to enable those permissions."
@@ -509,8 +511,8 @@ aws_organization_check() {
         echo
         echo "${RED}Failed Preflight Permissions Check${NC}"
         echo "Please login in the Master Account and make sure you have permissions over the Organization"
-        echo "- organizations:DescribeOrganization"
-        echo "- organizations:DescribeOrganizationalUnit"
+        echo " - organizations:DescribeOrganization"
+        echo " - organizations:DescribeOrganizationalUnit"
         echo
         exit 1
     fi 
@@ -537,7 +539,7 @@ aws_organization_check() {
     local audts=0
     local feats=0
 
-    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
+    echo "Are you enabling - Audit Log Collection (CloudTrail)?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     case $audit_logs in
         y)
@@ -551,7 +553,7 @@ aws_organization_check() {
 
     echo 
     echo "Are you enabling at least one of the following features?"
-    echo " - Data security posture management"
+    echo " - Data security posture management (DSPM)"
     echo " - Registry scanning"
     echo " - Serverless function scanning"
 
@@ -567,6 +569,8 @@ aws_organization_check() {
     esac
 
     # Check each action
+    echo
+    print_header "Checking Required Permissions"
     for ACTION in "${aws_org_actions[@]}"; do
         RESULT=$(aws iam simulate-principal-policy \
             --policy-source-arn "$ENTITY_ARN" \
@@ -589,26 +593,28 @@ aws_organization_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
-    (( feats == 0 )) && echo "- DSPM, Registry Scanning and Serverless function scanning disabled." || echo "DSPM, Registry Scanning or/and Serverless function Scanning enabled."
+    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
+    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning or/and Serverless function Scanning enabled."
     echo
-    echo "- Identity ARN: $IDENTITY_ARN"
-    echo "- ACCOUNT ID: $ACCOUNT_ID"
-    echo "- Organization Master ACCOUNT ID: $ORG_ID"
+    echo "This identity was checked:"
+    echo " - Identity ARN: $IDENTITY_ARN"
+    echo " - ACCOUNT ID: $ACCOUNT_ID"
+    echo " - Organization Master ACCOUNT ID: $ORG_ID"
     echo
     echo "Make sure these services are active in your AWS Organization:"
-    echo "- AWS Account Management"
-    echo "- AWS CloudFormation StackSets"
-    echo "- CloudTrail"
+    echo " - AWS Account Management"
+    echo " - AWS CloudFormation StackSets"
+    echo " - CloudTrail"
     echo
     echo "Make sure you have a service-linked role for CloudTrail."
 
+    echo
     if [ ${#DENIED_ACTIONS[@]} -eq 0 ]; then
-        echo -e "${GREEN}You have the required permissions.${NC}"
+        echo -e "${GREEN}Verdict: You have the required permissions.${NC}"
     else
-        echo -e "${RED}Missing permissions:${NC}"
+        echo -e "${RED}Verdict: You are missing these permissions:${NC}"
         for PERM in "${DENIED_ACTIONS[@]}"; do
-            echo "   - $PERM"
+            echo " - $PERM"
         done
         echo 
         echo "Please contact an administrator to enable those permissions."
@@ -673,7 +679,7 @@ azure_subscription_check() {
     # wildcard matcher: allow patterns like Microsoft.*/*/read
     _match() { local pat="$1" str="$2"; [[ "$str" == $pat ]]; }
 
-    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
+    echo "Are you enabling Audit Log Collecton?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     local audts=0
 
@@ -719,7 +725,7 @@ azure_subscription_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
     echo
     echo "Assignee: $ASSIGNEE"
     echo "Scope:    $SCOPE"
@@ -737,7 +743,7 @@ azure_subscription_check() {
         printf '%s\n' "${DIF[@]}"
         echo
         echo -e "${RED}Missing permissions:"
-        printf '  - %s\n' "${missing[@]}"
+        printf ' - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -887,18 +893,18 @@ azure_management_group_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
     echo
     echo "Assignee: $ASSIGNEE"
     echo "Management Group Scope: $MG_SCOPE"
     echo 
     if (( ${#missing[@]} == 0 )); then
         echo -e "${GREEN}Permissions OK${NC} — all required entries for MG scope are satisfied."
-        printf '  - %s\n' "${azure_mg_required[@]}"
+        printf ' - %s\n' "${azure_mg_required[@]}"
         return 0
     else
         echo -e "${RED}Missing permissions at MG scope:${NC}"
-        printf '  - %s\n' "${missing[@]}"
+        printf ' - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -1084,17 +1090,17 @@ gcp_project_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( audts == 0 )) && echo " - Audit Log Collection enaabled" || echo " - Audit Log Collection enabled"
     echo
-    echo "Scope:    $PROJECT_ID"
+    echo "Scope: $PROJECT_ID"
     echo
     if ((${#missing[@]} == 0)); then
         echo -e "${GREEN}Permissions OK${NC} — all required GCP project permissions are granted."
-        printf '  - %s\n' "${req_perms[@]}"
+        printf ' - %s\n' "${req_perms[@]}"
         return 0
     else
         echo -e "${RED}Missing permissions:${NC}"
-        printf '  - %s\n' "${missing[@]}"
+        printf ' - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -1279,19 +1285,19 @@ gcp_org_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( audts == 0 )) && echo " - Audit Log Collection disabled" || echo " - Audit Log Collection enabled"
     echo
     echo "Scope: organizations/${ORG_NUM}"
     echo
     if ((${#missing[@]} == 0)); then
         echo -e "${GREEN}Permissions OK${NC} — all required GCP organization permissions are granted."
-        printf '  - %s\n' "${req_perms[@]}"
+        printf ' - %s\n' "${req_perms[@]}"
         echo
         echo "You can onboard this GCP organization to Cortex Cloud."
         return 0
     else
         echo -e "${RED}Missing organization permissions:${NC}"
-        printf '  - %s\n' "${missing[@]}"
+        printf ' - %s\n' "${missing[@]}"
         return 1
     fi
 }
