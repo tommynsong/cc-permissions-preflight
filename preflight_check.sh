@@ -463,7 +463,7 @@ aws_account_check() {
     echo
     echo "Based on the selected options: " 
     (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
-    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or serverless function scanning enabled."
+    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or Serverless function Scanning enabled."
     echo
     echo "This identity was checked:"
     echo " - Identity ARN: $IDENTITY_ARN"
@@ -594,7 +594,7 @@ aws_organization_check() {
     echo
     echo "Based on the selected options: " 
     (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
-    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or serverless function scanning enabled."
+    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or Serverless function Scanning enabled."
     echo
     echo "This identity was checked:"
     echo " - Identity ARN: $IDENTITY_ARN"
