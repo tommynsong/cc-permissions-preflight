@@ -71,9 +71,6 @@ Please select the Account Type:
     4) Azure Management Group
     5) Azure Tenant
     6) GCP Project
-    4) Azure Management Group
-    5) Azure Tenant
-    6) GCP Project
     7) GCP Organization
 Enter choice [1-7]:
 ```
