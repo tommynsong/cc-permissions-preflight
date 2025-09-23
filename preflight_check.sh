@@ -216,31 +216,43 @@ PERMISSIONS_AZURE_SUBSCRIPTION_AUDIT_LOGS=(
     "Microsoft.EventHub/namespaces/authorizationRules/listKeys/action"
 )
 PERMISSIONS_AZURE_MG_BASE=(
-    "Microsoft.Resources/subscriptions/read"
-    "Microsoft.Resources/subscriptions/resourcegroups/read"
-    "Microsoft.Resources/deployments/validate/action"
-    "Microsoft.Resources/subscriptions/resourcegroups/write"
-    "Microsoft.Authorization/roleDefinitions/write"
+    "Microsoft.Authorization/roleAssignments/read"
     "Microsoft.Authorization/roleAssignments/write"
-    "Microsoft.Resources/subscriptions/resourceGroups/delete"
-    "Microsoft.Authorization/roleDefinitions/delete"
     "Microsoft.Authorization/roleAssignments/delete"
-    "Microsoft.Resources/deployments/write"
-    "Microsoft.Resources/deploymentScripts/write"
+    "Microsoft.Authorization/roleDefinitions/read"
+    "Microsoft.Authorization/roleDefinitions/write"
+    "Microsoft.Authorization/roleDefinitions/delete"
+    "Microsoft.Authorization/roleManagementPolicies/read"
+    "Microsoft.Authorization/roleManagementPolicies/write"
+    "Microsoft.Authorization/roleManagementPolicyAssignments/read"
+    "Microsoft.aadiam/diagnosticsettings/write"
+    "Microsoft.aadiam/diagnosticsettings/read"
+    "Microsoft.aadiam/diagnosticsettings/delete"
+    "Microsoft.aadiam/azureADMetrics/providers/Microsoft.Insights/diagnosticSettings/write"
+    "Microsoft.aadiam/tenants/providers/Microsoft.Insights/diagnosticSettings/write"
+    "Microsoft.Resources/deployments/validate/action"
+    "Microsoft.Insights/DiagnosticSettings/Write"
     "Microsoft.Resources/deployments/read"
+    "Microsoft.Resources/deployments/write"
     "Microsoft.Resources/deployments/delete"
     "Microsoft.Resources/deployments/cancel/action"
-    "Microsoft.Resources/deploymentScripts/read"
-    "Microsoft.Resources/deploymentScripts/delete"
-    "Microsoft.Resources/deployments/operationStatuses/read"
+    "Microsoft.Resources/deployments/whatIf/action"
+    "Microsoft.Resources/deployments/operations/read"
+    "Microsoft.Resources/deployments/exportTemplate/action"
+    "Microsoft.Resources/deployments/operationstatuses/read"
+    "Microsoft.Authorization/elevateAccess/action"
+    "Microsoft.PolicyInsights/remediations/read"
+    "Microsoft.PolicyInsights/remediations/write"
+    "Microsoft.PolicyInsights/remediations/delete"
+    "Microsoft.PolicyInsights/remediations/cancel/action"
+    "Microsoft.PolicyInsights/remediations/listDeployments/read"
+    "Microsoft.Resources/subscriptions/read"
     "Microsoft.ContainerInstance/containerGroups/read"
     "Microsoft.Storage/storageAccounts/read"
     "Microsoft.Storage/storageAccounts/write"
     "Microsoft.ContainerInstance/containerGroups/write"
     "Microsoft.ManagedIdentity/userAssignedIdentities/write"
     "Microsoft.ManagedIdentity/userAssignedIdentities/read"
-    "Microsoft.Authorization/roleDefinitions/read"
-    "Microsoft.Authorization/roleAssignments/read"
     "Microsoft.Management/managementGroups/read"
     "Microsoft.Authorization/policyAssignments/read"
     "Microsoft.Authorization/policyAssignments/write"
@@ -248,54 +260,26 @@ PERMISSIONS_AZURE_MG_BASE=(
     "Microsoft.Authorization/policySetDefinitions/read"
     "Microsoft.PolicyInsights/policyStates/summarize/action"
     "Microsoft.PolicyInsights/policyStates/queryResults/action"
-    "Microsoft.PolicyInsights/remediations/read"
-    "Microsoft.PolicyInsights/remediations/write"
+    "Microsoft.Authorization/policyDefinitions/write"
+    "Microsoft.Insights/diagnosticSettings/read"
+    "Microsoft.ManagedIdentity/userAssignedIdentities/assign/action"
+    "Microsoft.Management/managementGroups/descendants/read"
+    "Microsoft.Management/managementGroups/subscriptions/read"
 )
 PERMISSIONS_AZURE_MG_AUDIT_LOGS=(
-    "Microsoft.Resources/subscriptions/read"
     "Microsoft.Resources/subscriptions/resourcegroups/read"
-    "Microsoft.Resources/deployments/validate/action"
     "Microsoft.Resources/subscriptions/resourcegroups/write"
-    "Microsoft.Authorization/roleDefinitions/write"
-    "Microsoft.Authorization/roleAssignments/write"
     "Microsoft.Resources/subscriptions/resourceGroups/delete"
-    "Microsoft.Authorization/roleDefinitions/delete"
-    "Microsoft.Authorization/roleAssignments/delete"
-    "Microsoft.Resources/deployments/write"
     "Microsoft.Resources/deploymentScripts/write"
-    "Microsoft.Resources/deployments/read"
-    "Microsoft.Resources/deployments/delete"
-    "Microsoft.Resources/deployments/cancel/action"
     "Microsoft.Resources/deploymentScripts/read"
     "Microsoft.Resources/deploymentScripts/delete"
-    "Microsoft.Resources/deployments/operationStatuses/read"
-    "Microsoft.ContainerInstance/containerGroups/read"
-    "Microsoft.Storage/storageAccounts/read"
-    "Microsoft.Storage/storageAccounts/write"
-    "Microsoft.ContainerInstance/containerGroups/write"
-    "Microsoft.ManagedIdentity/userAssignedIdentities/write"
-    "Microsoft.ManagedIdentity/userAssignedIdentities/read"
-    "Microsoft.Authorization/roleDefinitions/read"
-    "Microsoft.Authorization/roleAssignments/read"
-    "Microsoft.Management/managementGroups/read"
-    "Microsoft.Authorization/policyAssignments/read"
-    "Microsoft.Authorization/policyAssignments/write"
-    "Microsoft.Authorization/policyDefinitions/read"
-    "Microsoft.Authorization/policySetDefinitions/read"
-    "Microsoft.PolicyInsights/policyStates/summarize/action"
-    "Microsoft.PolicyInsights/policyStates/queryResults/action"
-    "Microsoft.PolicyInsights/remediations/read"
-    "Microsoft.PolicyInsights/remediations/write"
     "Microsoft.EventHub/namespaces/write"
     "Microsoft.EventHub/namespaces/eventhubs/write"
     "Microsoft.EventHub/namespaces/authorizationRules/write"
     "Microsoft.EventHub/namespaces/eventhubs/authorizationRules/write"
     "Microsoft.EventHub/namespaces/eventhubs/consumergroups/write"
     "Microsoft.Storage/storageAccounts/blobServices/write"
-    "Microsoft.Insights/diagnosticSettings/write"
     "Microsoft.EventHub/namespaces/read"
-    "Microsoft.Storage/storageAccounts/read"
-    "Microsoft.Storage/storageAccounts/write"
     "Microsoft.Storage/storageAccounts/fileServices/read"
     "Microsoft.EventHub/namespaces/authorizationRules/read"
     "Microsoft.EventHub/namespaces/eventhubs/read"
@@ -414,7 +398,7 @@ aws_account_check() {
     local audts=0
     local feats=0
 
-    echo "Are you enabling - Audit Log Collection (CloudTrail)?"
+    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     case $audit_logs in
         y|Y)
@@ -425,7 +409,7 @@ aws_account_check() {
 
     echo 
     echo "Are you enabling at least one of the following features?"
-    echo " - Data security posture management (DSPM)"
+    echo " - Data security posture management"
     echo " - Registry scanning"
     echo " - Serverless function scanning"
 
@@ -440,7 +424,6 @@ aws_account_check() {
     echo
 
     # Check each action
-    print_header "Checking Required Permissions"
     for ACTION in "${aws_single_actions[@]}"; do
         RESULT=$(aws iam simulate-principal-policy \
             --policy-source-arn "$ENTITY_ARN" \
@@ -462,19 +445,18 @@ aws_account_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
-    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or Serverless function Scanning enabled."
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( feats == 0 )) && echo "- DSPM, Registry Scanning and Serverless function scanning disabled." || echo "DSPM, Registry Scanning or/and Serverless function Scanning enabled."
     echo
-    echo "This identity was checked:"
-    echo " - Identity ARN: $IDENTITY_ARN"
-    echo " - ACCOUNT ID: $ACCOUNT_ID"
+    echo "- Identity ARN: $IDENTITY_ARN"
+    echo "- ACCOUNT ID: $ACCOUNT_ID"
     echo
     if [ ${#DENIED_ACTIONS[@]} -eq 0 ]; then
-        echo -e "${GREEN}Verdict: You have the required permissions.${NC}"
+        echo -e "${GREEN}You have the required permissions.${NC}"
     else
-        echo -e "${RED}Verdict: You are missing these permissions:${NC}"
+        echo -e "${RED} Missing permissions:${NC}"
         for PERM in "${DENIED_ACTIONS[@]}"; do
-            echo " - $PERM"
+            echo "   - $PERM"
         done
         echo 
         echo "Please contact an administrator to enable those permissions."
@@ -511,8 +493,8 @@ aws_organization_check() {
         echo
         echo "${RED}Failed Preflight Permissions Check${NC}"
         echo "Please login in the Master Account and make sure you have permissions over the Organization"
-        echo " - organizations:DescribeOrganization"
-        echo " - organizations:DescribeOrganizationalUnit"
+        echo "- organizations:DescribeOrganization"
+        echo "- organizations:DescribeOrganizationalUnit"
         echo
         exit 1
     fi 
@@ -524,7 +506,7 @@ aws_organization_check() {
         ROLE_NAME=$(echo "$IDENTITY_ARN" | awk -F'/' '{print $2}')
         ENTITY_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
     elif [[ "$IDENTITY_ARN" == *":root" ]]; then
-        echo "Detected CloudShell root ARN — All permissions are satisfied"
+        echo "Detected CloudShell root ARN — All permission are satisfied"
         exit 1
     else
         echo "Unsupported identity type: $IDENTITY_ARN"
@@ -539,7 +521,7 @@ aws_organization_check() {
     local audts=0
     local feats=0
 
-    echo "Are you enabling - Audit Log Collection (CloudTrail)?"
+    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     case $audit_logs in
         y)
@@ -553,7 +535,7 @@ aws_organization_check() {
 
     echo 
     echo "Are you enabling at least one of the following features?"
-    echo " - Data security posture management (DSPM)"
+    echo " - Data security posture management"
     echo " - Registry scanning"
     echo " - Serverless function scanning"
 
@@ -569,8 +551,6 @@ aws_organization_check() {
     esac
 
     # Check each action
-    echo
-    print_header "Checking Required Permissions"
     for ACTION in "${aws_org_actions[@]}"; do
         RESULT=$(aws iam simulate-principal-policy \
             --policy-source-arn "$ENTITY_ARN" \
@@ -593,28 +573,26 @@ aws_organization_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
-    (( feats == 0 )) && echo " - DSPM, Registry Scanning and Serverless function scanning disabled." || echo " - DSPM, Registry Scanning and/or Serverless function Scanning enabled."
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
+    (( feats == 0 )) && echo "- DSPM, Registry Scanning and Serverless function scanning disabled." || echo "DSPM, Registry Scanning or/and Serverless function Scanning enabled."
     echo
-    echo "This identity was checked:"
-    echo " - Identity ARN: $IDENTITY_ARN"
-    echo " - ACCOUNT ID: $ACCOUNT_ID"
-    echo " - Organization Master ACCOUNT ID: $ORG_ID"
+    echo "- Identity ARN: $IDENTITY_ARN"
+    echo "- ACCOUNT ID: $ACCOUNT_ID"
+    echo "- Organization Master ACCOUNT ID: $ORG_ID"
     echo
     echo "Make sure these services are active in your AWS Organization:"
-    echo " - AWS Account Management"
-    echo " - AWS CloudFormation StackSets"
-    echo " - CloudTrail"
+    echo "- AWS Account Management"
+    echo "- AWS CloudFormation StackSets"
+    echo "- CloudTrail"
     echo
     echo "Make sure you have a service-linked role for CloudTrail."
 
-    echo
     if [ ${#DENIED_ACTIONS[@]} -eq 0 ]; then
-        echo -e "${GREEN}Verdict: You have the required permissions.${NC}"
+        echo -e "${GREEN}You have the required permissions.${NC}"
     else
-        echo -e "${RED}Verdict: You are missing these permissions:${NC}"
+        echo -e "${RED}Missing permissions:${NC}"
         for PERM in "${DENIED_ACTIONS[@]}"; do
-            echo " - $PERM"
+            echo "   - $PERM"
         done
         echo 
         echo "Please contact an administrator to enable those permissions."
@@ -679,7 +657,7 @@ azure_subscription_check() {
     # wildcard matcher: allow patterns like Microsoft.*/*/read
     _match() { local pat="$1" str="$2"; [[ "$str" == $pat ]]; }
 
-    echo "Are you enabling Audit Log Collection?"
+    echo "Are you enabling - Collect Audit Logs (CloudTrail)?"
     read -p "Enter your choice of yes or no (y or n): " audit_logs
     local audts=0
 
@@ -725,7 +703,7 @@ azure_subscription_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
     echo
     echo "Assignee: $ASSIGNEE"
     echo "Scope:    $SCOPE"
@@ -743,7 +721,7 @@ azure_subscription_check() {
         printf '%s\n' "${DIF[@]}"
         echo
         echo -e "${RED}Missing permissions:"
-        printf ' - %s\n' "${missing[@]}"
+        printf '  - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -893,18 +871,22 @@ azure_management_group_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection not enabled" || echo " - Audit Log Collection enabled"
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
     echo
     echo "Assignee: $ASSIGNEE"
     echo "Management Group Scope: $MG_SCOPE"
     echo 
     if (( ${#missing[@]} == 0 )); then
+        (( audts == 0 )) && echo "" || echo "Make sure you have Global Administrator role assigned in Entra ID instance to onboard this Management Group in Cortex Cloud"
+        echo
         echo -e "${GREEN}Permissions OK${NC} — all required entries for MG scope are satisfied."
-        printf ' - %s\n' "${azure_mg_required[@]}"
+        printf '  - %s\n' "${azure_mg_required[@]}"
         return 0
     else
+        (( audts == 0 )) && echo "" || echo "Make sure you have Global Administrator role assigned in Entra ID instance to onboard this Management Group in Cortex Cloud"
+        echo
         echo -e "${RED}Missing permissions at MG scope:${NC}"
-        printf ' - %s\n' "${missing[@]}"
+        printf '  - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -985,13 +967,75 @@ azure_tenant_check() {
 
     if jq -e --arg rid "$role_id" '.value[]? | select(. == $rid)' >/dev/null 2>&1 <<<"$check_resp"; then
         echo -e "Result: ${GREEN}You ARE a Global Administrator in this tenant.${NC}"
-        echo -e "${NC}You can onboard the Azure Tenant to Cortex Cloud.${NC}"
-        return 0
+        
+        # return 0
     else
         echo -e "Result: ${RED}You are NOT a Global Administrator in this tenant.${NC}"
         echo -e "${NC}You can NOT onboard the Azure Tenant to Cortex Cloud.${NC}"
         return 1
     fi
+
+    echo
+    print_header "Checking Azure RBAC at root management group (\"Access management for Azure resources\")"
+    echo    
+    
+    if [[ -z "$OBJECT_ID" ]]; then
+        echo -e "${RED}Cannot resolve signed-in user's object id.${NC}" >&2
+        echo "Run: az login --tenant $TENANT_ID"
+        # return 2  # uncomment to fail hard
+    fi
+
+    # Find the root management group id (name field where parent is null)
+    local ROOTMG
+    ROOTMG="$(az account management-group list \
+        --query "[?properties.details.parent==null].name | [0]" -o tsv 2>/dev/null || true)"
+
+    if [[ -z "$ROOTMG" ]]; then
+        echo -e "${YELLOW}Root management group not found.${NC}"
+        echo "Tip: Enable Management Groups and/or ensure you have read permissions at root."
+        # return 2  # uncomment to fail hard
+    else
+        echo "Root management group: $ROOTMG"
+        # Look for 'User Access Administrator' at root MG for this principal
+        local UAA_JSON
+        UAA_JSON="$(az role assignment list \
+            --assignee-object-id "$OBJECT_ID" \
+            --scope "/providers/Microsoft.Management/managementGroups/$ROOTMG" \
+            --query "[?roleDefinitionName=='User Access Administrator']" \
+            -o json 2>/dev/null || true)"
+
+        if jq -e 'length>0' >/dev/null 2>&1 <<<"$UAA_JSON"; then
+            echo -e "Result: ${GREEN}\"Access management for Azure resources\" is ENABLED for ${UPN:-this user} (User Access Administrator at root).${NC}"
+            # you can set a flag here, e.g., HAS_ROOT_UAA=1
+        else
+            echo -e "Result: ${RED}No 'User Access Administrator' assignment at root for ${UPN:-this user}.${NC}"
+            echo "Action: A Global Admin can toggle it in Entra ID → Properties → Access management for Azure resources (sign out/in)."
+            # HAS_ROOT_UAA=0
+        fi
+        echo
+        print_header "Checking Azure RBAC at tenant root scope (/) for Owner/Contributor"
+        echo
+
+        if [[ -z "$OBJECT_ID" ]]; then
+            echo -e "${YELLOW}Skipping tenant-level role check: Cannot resolve signed-in user's object id.${NC}" >&2
+        else
+            local TENANT_ROLES_JSON
+            TENANT_ROLES_JSON="$(az role assignment list \
+                --assignee-object-id "$OBJECT_ID" \
+                --scope "/" \
+                --query "[?roleDefinitionName=='Owner' || roleDefinitionName=='Contributor']" \
+                -o json 2>/dev/null || true)"
+
+            if jq -e 'length > 0' >/dev/null 2>&1 <<<"$TENANT_ROLES_JSON"; then
+                local assigned_roles
+                assigned_roles=$(jq -r '[.[] | .roleDefinitionName] | unique | join(", ")' <<<"$TENANT_ROLES_JSON")
+                echo -e "Result: ${GREEN}User HAS required tenant-level role(s) ($assigned_roles) at scope '/'.${NC}"
+            else
+                echo -e "Result: ${RED}User does NOT have 'Owner' or 'Contributor' assignment at the tenant root scope ('/').${NC}"
+                echo "Action: An existing user with sufficient privileges must assign 'Owner' or 'Contributor' to '${UPN:-this user}' at the tenant root scope."
+            fi
+        fi
+    fi    
 }
 gcp_project_check() {
     echo
@@ -1090,17 +1134,17 @@ gcp_project_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection disabled" || echo " - Audit Log Collection enabled"
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
     echo
-    echo "Scope: $PROJECT_ID"
+    echo "Scope:    $PROJECT_ID"
     echo
     if ((${#missing[@]} == 0)); then
         echo -e "${GREEN}Permissions OK${NC} — all required GCP project permissions are granted."
-        printf ' - %s\n' "${req_perms[@]}"
+        printf '  - %s\n' "${req_perms[@]}"
         return 0
     else
         echo -e "${RED}Missing permissions:${NC}"
-        printf ' - %s\n' "${missing[@]}"
+        printf '  - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -1285,19 +1329,19 @@ gcp_org_check() {
     print_header "Preflight Permissions Check Summary"
     echo
     echo "Based on the selected options: " 
-    (( audts == 0 )) && echo " - Audit Log Collection disabled" || echo " - Audit Log Collection enabled"
+    (( audts == 0 )) && echo "- Audit Logs disabled" || echo "Audit Logs enabled"
     echo
     echo "Scope: organizations/${ORG_NUM}"
     echo
     if ((${#missing[@]} == 0)); then
         echo -e "${GREEN}Permissions OK${NC} — all required GCP organization permissions are granted."
-        printf ' - %s\n' "${req_perms[@]}"
+        printf '  - %s\n' "${req_perms[@]}"
         echo
-        echo "You can onboard this GCP organization to Cortex Cloud."
+        echo "You can Onboard this GCP Orgnazation to Cortex Cloud."
         return 0
     else
         echo -e "${RED}Missing organization permissions:${NC}"
-        printf ' - %s\n' "${missing[@]}"
+        printf '  - %s\n' "${missing[@]}"
         return 1
     fi
 }
@@ -1320,7 +1364,7 @@ provider=""
 #     read -rp "Choose provider (aws-account/aws-org/azure-sub/azure-mg/azure-tenant/gcp-project/gcp-org): " provider
 # fi
 
-# # Normalizing in lowercase
+# # Normalizinf in lowercase
 # provider="$(tr '[:upper:]' '[:lower:]' <<<"$provider")"
 
 print_header "Preflight Permissions Check Menu"
