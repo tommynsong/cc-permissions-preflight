@@ -1000,7 +1000,8 @@ azure_tenant_check() {
         local UAA_JSON
         UAA_JSON="$(az role assignment list \
             --assignee-object-id "$OBJECT_ID" \
-            --scope "/providers/Microsoft.Management/managementGroups/$ROOTMG" \
+            --scope "/providers/Microsoft.Management/managementGroups/$TENANT_ID" \
+            --include-inherited \
             --query "[?roleDefinitionName=='User Access Administrator']" \
             -o json 2>/dev/null || true)"
 
@@ -1022,7 +1023,8 @@ azure_tenant_check() {
             local TENANT_ROLES_JSON
             TENANT_ROLES_JSON="$(az role assignment list \
                 --assignee-object-id "$OBJECT_ID" \
-                --scope "/" \
+                --scope "/providers/Microsoft.Management/managementGroups/$TENANT_ID" \
+                --include-inherited \
                 --query "[?roleDefinitionName=='Owner' || roleDefinitionName=='Contributor']" \
                 -o json 2>/dev/null || true)"
 
