@@ -600,6 +600,123 @@ aws_organization_check() {
 }
 azure_subscription_check() {
     echo
+    print_header "Starting Azure Conditional Access Policy Check"
+    echo
+    local GRAPH_URL="https://graph.microsoft.com/v1.0"
+    local GRAPH_RESOURCE="https://graph.microsoft.com"
+    local ARM_ID="797f4846-ba00-4fd7-ba43-dac1f87f440d" #global ID
+    local CLOUD_SHELL_ID="2233b157-f44d-4812-b777-036cdaf9a96e" #global ID
+
+    # prerequisite check
+    if ! command -v az &> /dev/null || ! command -v jq &> /dev/null; then
+        echo -e "${RED}ERROR: Azure CLI ('az') or 'jq' is missing. Please install both.${NC}"
+        exit 1
+    fi
+    if ! az account show &> /dev/null; then
+        echo -e "${RED}ERROR: You are not logged in to Azure. Please run 'az login' first.${NC}"
+        exit 1
+    fi
+
+    echo "1. Retrieving Access Token via Azure CLI"
+
+    # retrieve token using the Azure CLI for the Graph Resource
+    TOKEN=$(az account get-access-token --resource "$GRAPH_RESOURCE" --query accessToken -o tsv 2>/dev/null)
+
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}ERROR: Failed to retrieve token. Check 'az login' status and permissions.${NC}"
+        exit 1
+    fi
+
+    # retrieve user email and tenant ID
+    USER_INFO=$(az account show --query "{tenantId:tenantId, user:user.name}" -o json 2>/dev/null)
+    CURRENT_USER=$(echo "$USER_INFO" | jq -r '.user')
+    CURRENT_TENANT=$(echo "$USER_INFO" | jq -r '.tenantId')
+
+    # fetch and filter
+    echo -e "\n2. Fetching Policies from Microsoft Graph"
+    RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>/dev/null)
+
+    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+        echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
+        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        echo -e "\n${YELLOW}Current User Context:"
+        echo -e "  User: ${CURRENT_USER}"
+        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+        exit 0
+    fi
+
+    # filtering and formatting output using jq
+    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+    map(select(.state == "enabled")) |
+    map({
+        displayName: .displayName,
+        state: .state,
+        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+        # normalize includeApplications to IDs only
+        includeAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end)
+        ),
+        # extract relevant Application IDs
+        relevantAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end) |
+        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+        ),
+        # impact warning
+        impactWarning: (
+        if any(
+            (.conditions.applications.includeApplications // [])[];
+            (if type == "object" then .id else . end) == $ARM_ID or
+            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+        )
+        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+        else "No direct ARM/Cloud Shell impact detected."
+        end
+        )
+    })
+    ')
+
+    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+
+    # report results
+    if [[ $COUNT -gt 0 ]]; then
+        # Case 1: Policies were found
+        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+
+        # use jq to format the final table-like output
+        echo "$ONBOARDING_POLICIES" | jq -r '
+        .[] | 
+        "  Name: \(.displayName)\n" +
+        "  State: \(.state)\n" +
+        "  Controls: \(.builtInControls)\n" +
+        "  Client Apps: \(.clientAppTypes)\n" +
+        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+        "  \(.impactWarning)\n" +
+        " "
+        '
+
+        echo -e "\n${YELLOW}NOTE ON IMPACT:
+        - 'block' in Controls means CLI access will fail instantly.
+        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+
+    else
+        # Case 2: No policies were found
+        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
+        
+        # Add the warning about permissions (as requested)
+        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+    fi
+    # end of Azure CAP validation
+
+    echo
     print_header "Starting Azure Subscription Preflight Permissions Check"
     echo
     echo "Note: Some delete permissions are included for rollback. They're not required for Onboarding."
@@ -726,6 +843,123 @@ azure_subscription_check() {
     fi
 }
 azure_management_group_check() {
+    echo
+    print_header "Starting Azure Conditional Access Policy Check"
+    echo
+    local GRAPH_URL="https://graph.microsoft.com/v1.0"
+    local GRAPH_RESOURCE="https://graph.microsoft.com"
+    local ARM_ID="797f4846-ba00-4fd7-ba43-dac1f87f440d" #global ID
+    local CLOUD_SHELL_ID="2233b157-f44d-4812-b777-036cdaf9a96e" #global ID
+
+    # prerequisite check
+    if ! command -v az &> /dev/null || ! command -v jq &> /dev/null; then
+        echo -e "${RED}ERROR: Azure CLI ('az') or 'jq' is missing. Please install both.${NC}"
+        exit 1
+    fi
+    if ! az account show &> /dev/null; then
+        echo -e "${RED}ERROR: You are not logged in to Azure. Please run 'az login' first.${NC}"
+        exit 1
+    fi
+
+    echo "1. Retrieving Access Token via Azure CLI"
+
+    # retrieve token using the Azure CLI for the Graph Resource
+    TOKEN=$(az account get-access-token --resource "$GRAPH_RESOURCE" --query accessToken -o tsv 2>/dev/null)
+
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}ERROR: Failed to retrieve token. Check 'az login' status and permissions.${NC}"
+        exit 1
+    fi
+
+    # retrieve user email and tenant ID
+    USER_INFO=$(az account show --query "{tenantId:tenantId, user:user.name}" -o json 2>/dev/null)
+    CURRENT_USER=$(echo "$USER_INFO" | jq -r '.user')
+    CURRENT_TENANT=$(echo "$USER_INFO" | jq -r '.tenantId')
+
+    # fetch and filter
+    echo -e "\n2. Fetching Policies from Microsoft Graph"
+    RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>/dev/null)
+
+    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+        echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
+        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        echo -e "\n${YELLOW}Current User Context:"
+        echo -e "  User: ${CURRENT_USER}"
+        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+        exit 0
+    fi
+
+    # filtering and formatting output using jq
+    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+    map(select(.state == "enabled")) |
+    map({
+        displayName: .displayName,
+        state: .state,
+        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+        # normalize includeApplications to IDs only
+        includeAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end)
+        ),
+        # extract relevant Application IDs
+        relevantAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end) |
+        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+        ),
+        # impact warning
+        impactWarning: (
+        if any(
+            (.conditions.applications.includeApplications // [])[];
+            (if type == "object" then .id else . end) == $ARM_ID or
+            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+        )
+        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+        else "No direct ARM/Cloud Shell impact detected."
+        end
+        )
+    })
+    ')
+
+    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+
+    # report results
+    if [[ $COUNT -gt 0 ]]; then
+        # Case 1: Policies were found
+        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+
+        # use jq to format the final table-like output
+        echo "$ONBOARDING_POLICIES" | jq -r '
+        .[] | 
+        "  Name: \(.displayName)\n" +
+        "  State: \(.state)\n" +
+        "  Controls: \(.builtInControls)\n" +
+        "  Client Apps: \(.clientAppTypes)\n" +
+        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+        "  \(.impactWarning)\n" +
+        " "
+        '
+
+        echo -e "\n${YELLOW}NOTE ON IMPACT:
+        - 'block' in Controls means CLI access will fail instantly.
+        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+
+    else
+        # Case 2: No policies were found
+        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
+        
+        # Add the warning about permissions (as requested)
+        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+    fi
+    # end of Azure CAP validation
+
     echo
     print_header "Starting Azure Management Group Preflight Permissions Check"
     echo
@@ -891,6 +1125,123 @@ azure_management_group_check() {
     fi
 }
 azure_tenant_check() {
+    echo
+    print_header "Starting Azure Conditional Access Policy Check"
+    echo
+    local GRAPH_URL="https://graph.microsoft.com/v1.0"
+    local GRAPH_RESOURCE="https://graph.microsoft.com"
+    local ARM_ID="797f4846-ba00-4fd7-ba43-dac1f87f440d" #global ID
+    local CLOUD_SHELL_ID="2233b157-f44d-4812-b777-036cdaf9a96e" #global ID
+
+    # prerequisite check
+    if ! command -v az &> /dev/null || ! command -v jq &> /dev/null; then
+        echo -e "${RED}ERROR: Azure CLI ('az') or 'jq' is missing. Please install both.${NC}"
+        exit 1
+    fi
+    if ! az account show &> /dev/null; then
+        echo -e "${RED}ERROR: You are not logged in to Azure. Please run 'az login' first.${NC}"
+        exit 1
+    fi
+
+    echo "1. Retrieving Access Token via Azure CLI"
+
+    # retrieve token using the Azure CLI for the Graph Resource
+    TOKEN=$(az account get-access-token --resource "$GRAPH_RESOURCE" --query accessToken -o tsv 2>/dev/null)
+
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}ERROR: Failed to retrieve token. Check 'az login' status and permissions.${NC}"
+        exit 1
+    fi
+
+    # retrieve user email and tenant ID
+    USER_INFO=$(az account show --query "{tenantId:tenantId, user:user.name}" -o json 2>/dev/null)
+    CURRENT_USER=$(echo "$USER_INFO" | jq -r '.user')
+    CURRENT_TENANT=$(echo "$USER_INFO" | jq -r '.tenantId')
+
+    # fetch and filter
+    echo -e "\n2. Fetching Policies from Microsoft Graph"
+    RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>/dev/null)
+
+    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+        echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
+        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        echo -e "\n${YELLOW}Current User Context:"
+        echo -e "  User: ${CURRENT_USER}"
+        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+        exit 0
+    fi
+
+    # filtering and formatting output using jq
+    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+    map(select(.state == "enabled")) |
+    map({
+        displayName: .displayName,
+        state: .state,
+        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+        # normalize includeApplications to IDs only
+        includeAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end)
+        ),
+        # extract relevant Application IDs
+        relevantAppIds: (
+        (.conditions.applications.includeApplications // []) |
+        map(if type == "object" then .id else . end) |
+        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+        ),
+        # impact warning
+        impactWarning: (
+        if any(
+            (.conditions.applications.includeApplications // [])[];
+            (if type == "object" then .id else . end) == $ARM_ID or
+            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+        )
+        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+        else "No direct ARM/Cloud Shell impact detected."
+        end
+        )
+    })
+    ')
+
+    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+
+    # report results
+    if [[ $COUNT -gt 0 ]]; then
+        # Case 1: Policies were found
+        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+
+        # use jq to format the final table-like output
+        echo "$ONBOARDING_POLICIES" | jq -r '
+        .[] | 
+        "  Name: \(.displayName)\n" +
+        "  State: \(.state)\n" +
+        "  Controls: \(.builtInControls)\n" +
+        "  Client Apps: \(.clientAppTypes)\n" +
+        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+        "  \(.impactWarning)\n" +
+        " "
+        '
+
+        echo -e "\n${YELLOW}NOTE ON IMPACT:
+        - 'block' in Controls means CLI access will fail instantly.
+        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+
+    else
+        # Case 2: No policies were found
+        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
+        
+        # Add the warning about permissions (as requested)
+        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+    fi
+    # end of Azure CAP validation
+
     echo
     print_header "Checking Entra ID role: Global Administrator"
     echo
@@ -1080,7 +1431,9 @@ gcp_project_check() {
     esac
 
     # de-dup + strip empties
-    mapfile -t req_perms < <(printf '%s\n' "${req_perms[@]}" | awk 'NF' | sort -u)
+    while IFS= read -r line; do
+        req_perms+=("$line")
+    done < <(printf '%s\n' "${req_perms[@]}" | awk 'NF' | sort -u)
 
     # nothing to check?
     if ((${#req_perms[@]} == 0)); then
@@ -1114,13 +1467,17 @@ gcp_project_check() {
             return 3
         fi
 
-        mapfile -t granted_batch < <(jq -r '.permissions[]?' <<<"$resp")
+        granted_batch=()
+        while IFS= read -r line; do
+            granted_batch+=("$line")
+        done < <(jq -r '.permissions[]?' <<<"$resp")
+
         # mark any not returned as missing
         local p had
         for p in "${batch[@]}"; do
             had=""
             for g in "${granted_batch[@]}"; do
-            [[ "$p" == "$g" ]] && { had=1; break; }
+                [[ "$p" == "$g" ]] && { had=1; break; }
             done
             [[ -z "$had" ]] && missing+=("$p")
         done
@@ -1146,7 +1503,7 @@ gcp_project_check() {
         return 0
     else
         echo -e "${RED}Missing permissions:${NC}"
-        printf '  - %s\n' "${missing[@]}"
+        printf '%s\n' "${missing[@]}" | sort -u | sed 's/^/ - /'
         return 1
     fi
 }
@@ -1290,15 +1647,47 @@ gcp_org_check() {
 
     _test_org_batch() {
         local -a batch=("$@")
-        local json_perms payload resp
+        local json_perms payload resp resource
         json_perms="$(printf '%s\n' "${batch[@]}" | jq -R . | jq -s .)"
         payload="$(jq -n --argjson perms "$json_perms" '{permissions:$perms}')"
+
+        # pick the right resource endpoint for this batch
+        # (for now, use the first permission as a hint — keep batches grouped by type)
+        case "${batch[0]}" in
+            iam.serviceAccounts.*)
+                # requires a specific service account; pick the default or prompt
+                local SA_EMAIL
+                SA_EMAIL="$(gcloud iam service-accounts list --project "$PROJECT_ID" --format='value(email)' | head -n1)"
+                [[ -z "$SA_EMAIL" ]] && { echo "No service accounts found in project" >&2; return 3; }
+                resource="https://iam.googleapis.com/v1/projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
+                ;;
+            pubsub.topics.*)
+                # requires a topic; pick one or create a dummy name
+                local TOPIC
+                TOPIC="$(gcloud pubsub topics list --project "$PROJECT_ID" --format='value(name)' | head -n1)"
+                [[ -z "$TOPIC" ]] && TOPIC="projects/${PROJECT_ID}/topics/dummy"
+                resource="https://pubsub.googleapis.com/v1/${TOPIC}"
+                ;;
+            pubsub.subscriptions.*)
+                local SUB
+                SUB="$(gcloud pubsub subscriptions list --project "$PROJECT_ID" --format='value(name)' | head -n1)"
+                [[ -z "$SUB" ]] && SUB="projects/${PROJECT_ID}/subscriptions/dummy"
+                resource="https://pubsub.googleapis.com/v1/${SUB}"
+                ;;
+            logging.sinks.*)
+                resource="https://logging.googleapis.com/v2/projects/${PROJECT_ID}"
+                ;;
+            *)
+                # default: project-level perms
+                resource="https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}"
+                ;;
+        esac
 
         resp="$(curl -sS -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "https://cloudresourcemanager.googleapis.com/v1/organizations/${ORG_NUM}:testIamPermissions")" || return 3
+            "${resource}:testIamPermissions")" || return 3
 
         # handle API errors cleanly
         if jq -e '.error' >/dev/null 2>&1 <<<"$resp"; then
