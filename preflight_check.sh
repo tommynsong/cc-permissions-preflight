@@ -634,85 +634,112 @@ azure_subscription_check() {
 
     # fetch and filter
     echo -e "\n2. Fetching Policies from Microsoft Graph"
+    # Capture stderr (errors) to a separate variable for better diagnosis
+    ERROR_OUTPUT=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>&1 > /dev/null) # capture stdout into RAW_POLICIES_JSON (implicitly, if successful)
+
+    # Re-run to capture stdout (success) or rely on the fact that az rest fails if raw_policies is empty or an error
     RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
     --headers "Authorization=Bearer ${TOKEN}" \
     --query 'value' \
-    -o json 2>/dev/null)
+    -o json 2>/dev/null) # only capture stdout, suppress errors
 
-    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+    # flag to check if we should proceed with policy analysis
+    PROCEED_WITH_ANALYSIS=true
+
+    if [[ "$RAW_POLICIES_JSON" == "[]" || -z "$RAW_POLICIES_JSON" ]]; then
         echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
-        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
-        echo -e "\n${YELLOW}Current User Context:"
-        echo -e "  User: ${CURRENT_USER}"
-        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
-        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-        exit 0
+        # check if the error suggests a permissions issue (e.g., common error codes or lack of output)
+        if [[ -z "$RAW_POLICIES_JSON" ]]; then
+            # this branch handles an empty result, which strongly suggests a permission failure
+            echo -e "${RED}❌ FAILED TO READ: Found 0 Conditional Access Policies in the directory.${NC}"
+            echo -e "\n${YELLOW}Current User Context:"
+            echo -e "  User: ${CURRENT_USER}"
+            echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+            
+            # #print a specific error if one was captured
+            # if [ -n "$ERROR_OUTPUT" ]; then
+            #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
+            # fi
+
+        else
+            # this branch handles a literal '[]' (meaning no policies, but the API call was successful)
+            echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        fi
+
+        # in both cases (empty string or '[]'), we skip the rest of the analysis/filtering
+        PROCEED_WITH_ANALYSIS=false
     fi
 
-    # filtering and formatting output using jq
-    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
-    map(select(.state == "enabled")) |
-    map({
-        displayName: .displayName,
-        state: .state,
-        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
-        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
-        # normalize includeApplications to IDs only
-        includeAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end)
-        ),
-        # extract relevant Application IDs
-        relevantAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end) |
-        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
-        ),
-        # impact warning
-        impactWarning: (
-        if any(
-            (.conditions.applications.includeApplications // [])[];
-            (if type == "object" then .id else . end) == $ARM_ID or
-            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
-        )
-        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
-        else "No direct ARM/Cloud Shell impact detected."
-        end
-        )
-    })
-    ')
+    if $PROCEED_WITH_ANALYSIS; then
+        # filtering and formatting output using jq
+        ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+        map(select(.state == "enabled")) |
+        map({
+            displayName: .displayName,
+            state: .state,
+            builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+            clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+            # normalize includeApplications to IDs only
+            includeAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end)
+            ),
+            # extract relevant Application IDs
+            relevantAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end) |
+            map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+            ),
+            # impact warning
+            impactWarning: (
+            if any(
+                (.conditions.applications.includeApplications // [])[];
+                (if type == "object" then .id else . end) == $ARM_ID or
+                (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+            )
+            then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+            else "No direct ARM/Cloud Shell impact detected."
+            end
+            )
+        })
+        ')
 
-    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+        COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
 
-    # report results
-    if [[ $COUNT -gt 0 ]]; then
-        # Case 1: Policies were found
-        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+        # report results
+        if [[ $COUNT -gt 0 ]]; then
+            # Case 1: Policies were found
+            echo -e "Take into consideration that these policies could impact on onboarding:\n"
 
-        # use jq to format the final table-like output
-        echo "$ONBOARDING_POLICIES" | jq -r '
-        .[] | 
-        "  Name: \(.displayName)\n" +
-        "  State: \(.state)\n" +
-        "  Controls: \(.builtInControls)\n" +
-        "  Client Apps: \(.clientAppTypes)\n" +
-        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
-        "  \(.impactWarning)\n" +
-        " "
-        '
+            # use jq to format the final table-like output
+            echo "$ONBOARDING_POLICIES" | jq -r '
+            .[] | 
+            "  Name: \(.displayName)\n" +
+            "  State: \(.state)\n" +
+            "  Controls: \(.builtInControls)\n" +
+            "  Client Apps: \(.clientAppTypes)\n" +
+            "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+            "  \(.impactWarning)\n" +
+            " "
+            '
 
-        echo -e "\n${YELLOW}NOTE ON IMPACT:
-        - 'block' in Controls means CLI access will fail instantly.
-        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+            echo -e "\n${YELLOW}NOTE ON IMPACT:
+            - 'block' in Controls means CLI access will fail instantly.
+            - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
 
-    else
-        # Case 2: No policies were found
-        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
-        
-        # Add the warning about permissions (as requested)
-        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+        else
+            # case 2: No policies were found (after filtering, not due to an empty initial fetch)
+            echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
+            
+            # this is a general safety note
+            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+        fi
     fi
     # end of Azure CAP validation
 
@@ -878,85 +905,112 @@ azure_management_group_check() {
 
     # fetch and filter
     echo -e "\n2. Fetching Policies from Microsoft Graph"
+    # Capture stderr (errors) to a separate variable for better diagnosis
+    ERROR_OUTPUT=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>&1 > /dev/null) # capture stdout into RAW_POLICIES_JSON (implicitly, if successful)
+
+    # Re-run to capture stdout (success) or rely on the fact that az rest fails if raw_policies is empty or an error
     RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
     --headers "Authorization=Bearer ${TOKEN}" \
     --query 'value' \
-    -o json 2>/dev/null)
+    -o json 2>/dev/null) # only capture stdout, suppress errors
 
-    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+    # flag to check if we should proceed with policy analysis
+    PROCEED_WITH_ANALYSIS=true
+
+    if [[ "$RAW_POLICIES_JSON" == "[]" || -z "$RAW_POLICIES_JSON" ]]; then
         echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
-        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
-        echo -e "\n${YELLOW}Current User Context:"
-        echo -e "  User: ${CURRENT_USER}"
-        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
-        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-        exit 0
+        # check if the error suggests a permissions issue (e.g., common error codes or lack of output)
+        if [[ -z "$RAW_POLICIES_JSON" ]]; then
+            # this branch handles an empty result, which strongly suggests a permission failure
+            echo -e "${RED}❌ FAILED TO READ: Found 0 Conditional Access Policies in the directory.${NC}"
+            echo -e "\n${YELLOW}Current User Context:"
+            echo -e "  User: ${CURRENT_USER}"
+            echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+            
+            # #print a specific error if one was captured
+            # if [ -n "$ERROR_OUTPUT" ]; then
+            #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
+            # fi
+
+        else
+            # this branch handles a literal '[]' (meaning no policies, but the API call was successful)
+            echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        fi
+
+        # in both cases (empty string or '[]'), we skip the rest of the analysis/filtering
+        PROCEED_WITH_ANALYSIS=false
     fi
 
-    # filtering and formatting output using jq
-    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
-    map(select(.state == "enabled")) |
-    map({
-        displayName: .displayName,
-        state: .state,
-        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
-        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
-        # normalize includeApplications to IDs only
-        includeAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end)
-        ),
-        # extract relevant Application IDs
-        relevantAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end) |
-        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
-        ),
-        # impact warning
-        impactWarning: (
-        if any(
-            (.conditions.applications.includeApplications // [])[];
-            (if type == "object" then .id else . end) == $ARM_ID or
-            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
-        )
-        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
-        else "No direct ARM/Cloud Shell impact detected."
-        end
-        )
-    })
-    ')
+    if $PROCEED_WITH_ANALYSIS; then
+        # filtering and formatting output using jq
+        ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+        map(select(.state == "enabled")) |
+        map({
+            displayName: .displayName,
+            state: .state,
+            builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+            clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+            # normalize includeApplications to IDs only
+            includeAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end)
+            ),
+            # extract relevant Application IDs
+            relevantAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end) |
+            map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+            ),
+            # impact warning
+            impactWarning: (
+            if any(
+                (.conditions.applications.includeApplications // [])[];
+                (if type == "object" then .id else . end) == $ARM_ID or
+                (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+            )
+            then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+            else "No direct ARM/Cloud Shell impact detected."
+            end
+            )
+        })
+        ')
 
-    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+        COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
 
-    # report results
-    if [[ $COUNT -gt 0 ]]; then
-        # Case 1: Policies were found
-        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+        # report results
+        if [[ $COUNT -gt 0 ]]; then
+            # Case 1: Policies were found
+            echo -e "Take into consideration that these policies could impact on onboarding:\n"
 
-        # use jq to format the final table-like output
-        echo "$ONBOARDING_POLICIES" | jq -r '
-        .[] | 
-        "  Name: \(.displayName)\n" +
-        "  State: \(.state)\n" +
-        "  Controls: \(.builtInControls)\n" +
-        "  Client Apps: \(.clientAppTypes)\n" +
-        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
-        "  \(.impactWarning)\n" +
-        " "
-        '
+            # use jq to format the final table-like output
+            echo "$ONBOARDING_POLICIES" | jq -r '
+            .[] | 
+            "  Name: \(.displayName)\n" +
+            "  State: \(.state)\n" +
+            "  Controls: \(.builtInControls)\n" +
+            "  Client Apps: \(.clientAppTypes)\n" +
+            "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+            "  \(.impactWarning)\n" +
+            " "
+            '
 
-        echo -e "\n${YELLOW}NOTE ON IMPACT:
-        - 'block' in Controls means CLI access will fail instantly.
-        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+            echo -e "\n${YELLOW}NOTE ON IMPACT:
+            - 'block' in Controls means CLI access will fail instantly.
+            - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
 
-    else
-        # Case 2: No policies were found
-        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
-        
-        # Add the warning about permissions (as requested)
-        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+        else
+            # case 2: No policies were found (after filtering, not due to an empty initial fetch)
+            echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
+            
+            # this is a general safety note
+            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+        fi
     fi
     # end of Azure CAP validation
 
@@ -1160,85 +1214,112 @@ azure_tenant_check() {
 
     # fetch and filter
     echo -e "\n2. Fetching Policies from Microsoft Graph"
+    # Capture stderr (errors) to a separate variable for better diagnosis
+    ERROR_OUTPUT=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
+    --headers "Authorization=Bearer ${TOKEN}" \
+    --query 'value' \
+    -o json 2>&1 > /dev/null) # capture stdout into RAW_POLICIES_JSON (implicitly, if successful)
+
+    # Re-run to capture stdout (success) or rely on the fact that az rest fails if raw_policies is empty or an error
     RAW_POLICIES_JSON=$(az rest --method GET --url "${GRAPH_URL}/identity/conditionalAccess/policies" \
     --headers "Authorization=Bearer ${TOKEN}" \
     --query 'value' \
-    -o json 2>/dev/null)
+    -o json 2>/dev/null) # only capture stdout, suppress errors
 
-    if [ "$RAW_POLICIES_JSON" == "[]" ]; then
+    # flag to check if we should proceed with policy analysis
+    PROCEED_WITH_ANALYSIS=true
+
+    if [[ "$RAW_POLICIES_JSON" == "[]" || -z "$RAW_POLICIES_JSON" ]]; then
         echo -e "\n${BLUE}--- 3. Policy Report ---${NC}"
-        echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
-        echo -e "\n${YELLOW}Current User Context:"
-        echo -e "  User: ${CURRENT_USER}"
-        echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-        echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-        echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
-        echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-        exit 0
+        # check if the error suggests a permissions issue (e.g., common error codes or lack of output)
+        if [[ -z "$RAW_POLICIES_JSON" ]]; then
+            # this branch handles an empty result, which strongly suggests a permission failure
+            echo -e "${RED}❌ FAILED TO READ: Found 0 Conditional Access Policies in the directory.${NC}"
+            echo -e "\n${YELLOW}Current User Context:"
+            echo -e "  User: ${CURRENT_USER}"
+            echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
+            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
+            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
+            
+            # #print a specific error if one was captured
+            # if [ -n "$ERROR_OUTPUT" ]; then
+            #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
+            # fi
+
+        else
+            # this branch handles a literal '[]' (meaning no policies, but the API call was successful)
+            echo -e "${GREEN}✅ SUCCESS: Found 0 Conditional Access Policies in the directory.${NC}"
+        fi
+
+        # in both cases (empty string or '[]'), we skip the rest of the analysis/filtering
+        PROCEED_WITH_ANALYSIS=false
     fi
 
-    # filtering and formatting output using jq
-    ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
-    map(select(.state == "enabled")) |
-    map({
-        displayName: .displayName,
-        state: .state,
-        builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
-        clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
-        # normalize includeApplications to IDs only
-        includeAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end)
-        ),
-        # extract relevant Application IDs
-        relevantAppIds: (
-        (.conditions.applications.includeApplications // []) |
-        map(if type == "object" then .id else . end) |
-        map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
-        ),
-        # impact warning
-        impactWarning: (
-        if any(
-            (.conditions.applications.includeApplications // [])[];
-            (if type == "object" then .id else . end) == $ARM_ID or
-            (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
-        )
-        then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
-        else "No direct ARM/Cloud Shell impact detected."
-        end
-        )
-    })
-    ')
+    if $PROCEED_WITH_ANALYSIS; then
+        # filtering and formatting output using jq
+        ONBOARDING_POLICIES=$(echo "$RAW_POLICIES_JSON" | jq --arg ARM_ID "$ARM_ID" --arg CLOUD_SHELL_ID "$CLOUD_SHELL_ID" '
+        map(select(.state == "enabled")) |
+        map({
+            displayName: .displayName,
+            state: .state,
+            builtInControls: (.grantControls.builtInControls | join(", ") // "None"),
+            clientAppTypes: (.conditions.clientAppTypes | join(", ") // "all"),
+            # normalize includeApplications to IDs only
+            includeAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end)
+            ),
+            # extract relevant Application IDs
+            relevantAppIds: (
+            (.conditions.applications.includeApplications // []) |
+            map(if type == "object" then .id else . end) |
+            map(select(. == $ARM_ID or . == $CLOUD_SHELL_ID))
+            ),
+            # impact warning
+            impactWarning: (
+            if any(
+                (.conditions.applications.includeApplications // [])[];
+                (if type == "object" then .id else . end) == $ARM_ID or
+                (if type == "object" then .id else . end) == $CLOUD_SHELL_ID
+            )
+            then "🚨 IMPACT: Includes critical Azure service (ARM/Cloud Shell). Potential for CLI access issues. 🚨"
+            else "No direct ARM/Cloud Shell impact detected."
+            end
+            )
+        })
+        ')
 
-    COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
+        COUNT=$(echo "$ONBOARDING_POLICIES" | jq '. | length')
 
-    # report results
-    if [[ $COUNT -gt 0 ]]; then
-        # Case 1: Policies were found
-        echo -e "Take into consideration that these policies could impact on onboarding:\n"
+        # report results
+        if [[ $COUNT -gt 0 ]]; then
+            # Case 1: Policies were found
+            echo -e "Take into consideration that these policies could impact on onboarding:\n"
 
-        # use jq to format the final table-like output
-        echo "$ONBOARDING_POLICIES" | jq -r '
-        .[] | 
-        "  Name: \(.displayName)\n" +
-        "  State: \(.state)\n" +
-        "  Controls: \(.builtInControls)\n" +
-        "  Client Apps: \(.clientAppTypes)\n" +
-        "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
-        "  \(.impactWarning)\n" +
-        " "
-        '
+            # use jq to format the final table-like output
+            echo "$ONBOARDING_POLICIES" | jq -r '
+            .[] | 
+            "  Name: \(.displayName)\n" +
+            "  State: \(.state)\n" +
+            "  Controls: \(.builtInControls)\n" +
+            "  Client Apps: \(.clientAppTypes)\n" +
+            "  Targeted App IDs: \(.relevantAppIds | join(", ") // "None")\n" +
+            "  \(.impactWarning)\n" +
+            " "
+            '
 
-        echo -e "\n${YELLOW}NOTE ON IMPACT:
-        - 'block' in Controls means CLI access will fail instantly.
-        - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
+            echo -e "\n${YELLOW}NOTE ON IMPACT:
+            - 'block' in Controls means CLI access will fail instantly.
+            - 'require...' in Controls means CLI access will require MFA, Compliant Device, etc."
 
-    else
-        # Case 2: No policies were found
-        echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding.\n"
-        
-        # Add the warning about permissions (as requested)
-        echo -e "${YELLOW}Note: While no policies were found, it's recommended to confirm that the user running this script has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant."
+        else
+            # case 2: No policies were found (after filtering, not due to an empty initial fetch)
+            echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
+            
+            # this is a general safety note
+            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+        fi
     fi
     # end of Azure CAP validation
 
@@ -1343,7 +1424,10 @@ azure_tenant_check() {
 
     if [[ -z "$ROOTMG" ]]; then
         echo -e "${YELLOW}Root management group not found.${NC}"
-        echo "Tip: Enable Management Groups and/or ensure you have read permissions at root."
+        echo -e "${YELLOW}Tip: Management Group access issue detected. You are likely missing necessary Azure RBAC permissions.${NC}"
+        echo -e "${YELLOW}To view Management Groups, ensure the following:${NC}"
+        echo -e "${YELLOW}1. **Tenant Root Permission:** Your user must have an Azure RBAC role (e.g., 'Reader' or 'User Access Administrator') assigned at the **Tenant Root Scope ('/')**. This is the level *above* all subscriptions.${NC}"
+        echo -e "${YELLOW}2. **Enablement:** Management Groups must be enabled for the directory (a one-time setup).${NC}"
         # return 2  # uncomment to fail hard
     else
         echo "Root management group: $ROOTMG"
