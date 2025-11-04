@@ -43,6 +43,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+BOLD='\033[1m'
 
 #Utils
 # Function to print a formatted header
@@ -63,6 +64,11 @@ EOF
 _ci_match() {
   local pat="${1,,}" str="${2,,}"
   [[ "$str" == $pat ]]   # pat unquoted on purpose to allow globs like */register/action
+}
+
+# Break-word for big infos
+say() {
+  echo -e "$@" | fold -s -w 75
 }
 
 # Permission Sets for AWS Accounts
@@ -600,6 +606,69 @@ aws_organization_check() {
 }
 azure_subscription_check() {
     echo
+    print_header "Starting Azure Resource Provider Registration Check"
+    echo
+    # DOC: Reference - https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-providers-and-types
+    # providers needed to check list
+    local PROVIDERS_TO_CHECK=(
+        "Microsoft.Insights"
+        "Microsoft.Aadiam"
+    )
+
+    # get the current subscription ID dynamically
+    CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
+    if [ -z "$CURRENT_SUBSCRIPTION" ]; then
+        echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        exit 1
+    fi
+
+    echo "Using subscription: $CURRENT_SUBSCRIPTION"
+    echo
+
+    # this flag will be set to 'false' if any provider fails the check
+    ALL_CHECKS_PASSED=true
+
+    # main Check Loop
+    for provider in "${PROVIDERS_TO_CHECK[@]}"; do
+        echo -n "Checking provider: $provider ... "
+        
+        # get the registration state. 
+        STATE=$(az provider show --namespace "$provider" --query "registrationState" --output tsv 2>/dev/null)
+        
+        # check the state and report
+        if [ "$STATE" == "Registered" ]; then
+            echo -e "${GREEN}✅ Registered${NC}"
+        
+        elif [ "$STATE" == "Registering" ]; then
+            echo -e "${YELLOW}⚠️  Registering${NC}"
+            echo -e "   ${YELLOW}-> This provider is still registering. Please wait 5–15 minutes and re-run this check.${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        elif [ "$STATE" == "NotRegistered" ]; then
+            echo -e "${RED}❌ Not Registered${NC}"
+            echo -e "   ${YELLOW}-> SOLUTION:${NC} This provider is required. Run the following command:"
+            echo -e "      ${BOLD}az provider register --namespace $provider --subscription $CURRENT_SUBSCRIPTION${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        else
+            echo -e "${RED}❓ Unknown State:${NC} $STATE"
+            echo "   -> An unexpected status was returned. Please check in the Azure Portal."
+            ALL_CHECKS_PASSED=false
+        fi
+    done
+
+    # report
+    if [ "$ALL_CHECKS_PASSED" == "true" ]; then
+        echo -e "${GREEN}🎉 SUCCESS:${NC} All required providers are registered."
+        
+    else
+        echo ""
+        echo -e "${RED}🔴 FAILED: One or more providers are not registered."
+        echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+    fi
+    #end of resource providers check
+
+    echo
     print_header "Starting Azure Conditional Access Policy Check"
     echo
     local GRAPH_URL="https://graph.microsoft.com/v1.0"
@@ -658,8 +727,7 @@ azure_subscription_check() {
             echo -e "\n${YELLOW}Current User Context:"
             echo -e "  User: ${CURRENT_USER}"
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
             
             # #print a specific error if one was captured
@@ -738,7 +806,7 @@ azure_subscription_check() {
             echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
             
             # this is a general safety note
-            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+            say "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
         fi
     fi
     # end of Azure CAP validation
@@ -871,6 +939,69 @@ azure_subscription_check() {
 }
 azure_management_group_check() {
     echo
+    print_header "Starting Azure Resource Provider Registration Check"
+    echo
+    # DOC: Reference - https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-providers-and-types
+    # providers needed to check list
+    local PROVIDERS_TO_CHECK=(
+        "Microsoft.Insights"
+        "Microsoft.Aadiam"
+    )
+
+    # get the current subscription ID dynamically
+    CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
+    if [ -z "$CURRENT_SUBSCRIPTION" ]; then
+        echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        exit 1
+    fi
+
+    echo "Using subscription: $CURRENT_SUBSCRIPTION"
+    echo
+
+    # this flag will be set to 'false' if any provider fails the check
+    ALL_CHECKS_PASSED=true
+
+    # main Check Loop
+    for provider in "${PROVIDERS_TO_CHECK[@]}"; do
+        echo -n "Checking provider: $provider ... "
+        
+        # get the registration state. 
+        STATE=$(az provider show --namespace "$provider" --query "registrationState" --output tsv 2>/dev/null)
+        
+        # check the state and report
+        if [ "$STATE" == "Registered" ]; then
+            echo -e "${GREEN}✅ Registered${NC}"
+        
+        elif [ "$STATE" == "Registering" ]; then
+            echo -e "${YELLOW}⚠️  Registering${NC}"
+            echo -e "   ${YELLOW}-> This provider is still registering. Please wait 5–15 minutes and re-run this check.${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        elif [ "$STATE" == "NotRegistered" ]; then
+            echo -e "${RED}❌ Not Registered${NC}"
+            echo -e "   ${YELLOW}-> SOLUTION:${NC} This provider is required. Run the following command:"
+            echo -e "      ${BOLD}az provider register --namespace $provider --subscription $CURRENT_SUBSCRIPTION${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        else
+            echo -e "${RED}❓ Unknown State:${NC} $STATE"
+            echo "   -> An unexpected status was returned. Please check in the Azure Portal."
+            ALL_CHECKS_PASSED=false
+        fi
+    done
+
+    # report
+    if [ "$ALL_CHECKS_PASSED" == "true" ]; then
+        echo -e "${GREEN}🎉 SUCCESS:${NC} All required providers are registered."
+        
+    else
+        echo ""
+        echo -e "${RED}🔴 FAILED: One or more providers are not registered."
+        echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+    fi
+    #end of resource providers check
+
+    echo
     print_header "Starting Azure Conditional Access Policy Check"
     echo
     local GRAPH_URL="https://graph.microsoft.com/v1.0"
@@ -929,8 +1060,7 @@ azure_management_group_check() {
             echo -e "\n${YELLOW}Current User Context:"
             echo -e "  User: ${CURRENT_USER}"
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
             
             # #print a specific error if one was captured
@@ -1009,7 +1139,7 @@ azure_management_group_check() {
             echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
             
             # this is a general safety note
-            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+            say -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
         fi
     fi
     # end of Azure CAP validation
@@ -1180,6 +1310,69 @@ azure_management_group_check() {
 }
 azure_tenant_check() {
     echo
+    print_header "Starting Azure Resource Provider Registration Check"
+    echo
+    # DOC: Reference - https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-providers-and-types
+    # providers needed to check list
+    local PROVIDERS_TO_CHECK=(
+        "Microsoft.Insights"
+        "Microsoft.Aadiam"
+    )
+
+    # get the current subscription ID dynamically
+    CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
+    if [ -z "$CURRENT_SUBSCRIPTION" ]; then
+        echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        exit 1
+    fi
+
+    echo "Using subscription: $CURRENT_SUBSCRIPTION"
+    echo
+
+    # this flag will be set to 'false' if any provider fails the check
+    ALL_CHECKS_PASSED=true
+
+    # main Check Loop
+    for provider in "${PROVIDERS_TO_CHECK[@]}"; do
+        echo -n "Checking provider: $provider ... "
+        
+        # get the registration state. 
+        STATE=$(az provider show --namespace "$provider" --query "registrationState" --output tsv 2>/dev/null)
+        
+        # check the state and report
+        if [ "$STATE" == "Registered" ]; then
+            echo -e "${GREEN}✅ Registered${NC}"
+        
+        elif [ "$STATE" == "Registering" ]; then
+            echo -e "${YELLOW}⚠️  Registering${NC}"
+            echo -e "   ${YELLOW}-> This provider is still registering. Please wait 5–15 minutes and re-run this check.${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        elif [ "$STATE" == "NotRegistered" ]; then
+            echo -e "${RED}❌ Not Registered${NC}"
+            echo -e "   ${YELLOW}-> SOLUTION:${NC} This provider is required. Run the following command:"
+            echo -e "      ${BOLD}az provider register --namespace $provider --subscription $CURRENT_SUBSCRIPTION${NC}"
+            ALL_CHECKS_PASSED=false
+            
+        else
+            echo -e "${RED}❓ Unknown State:${NC} $STATE"
+            echo "   -> An unexpected status was returned. Please check in the Azure Portal."
+            ALL_CHECKS_PASSED=false
+        fi
+    done
+
+    # report
+    if [ "$ALL_CHECKS_PASSED" == "true" ]; then
+        echo -e "${GREEN}🎉 SUCCESS:${NC} All required providers are registered."
+        
+    else
+        echo ""
+        echo -e "${RED}🔴 FAILED: One or more providers are not registered."
+        echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+    fi
+    #end of resource providers check
+
+    echo
     print_header "Starting Azure Conditional Access Policy Check"
     echo
     local GRAPH_URL="https://graph.microsoft.com/v1.0"
@@ -1238,8 +1431,7 @@ azure_tenant_check() {
             echo -e "\n${YELLOW}Current User Context:"
             echo -e "  User: ${CURRENT_USER}"
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
-            echo -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles "
-            echo -e "to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above."
+            say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
             
             # #print a specific error if one was captured
@@ -1318,7 +1510,7 @@ azure_tenant_check() {
             echo -e "${GREEN}No Conditional Access policies were found to be currently impacting onboarding (after filtering).${NC}\n"
             
             # this is a general safety note
-            echo -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
+            say -e "${YELLOW}Note: It is still recommended to confirm the user has the necessary permissions (e.g., Global Reader or Security Reader role) to view all Conditional Access policies in the Microsoft Entra ID tenant.${NC}"
         fi
     fi
     # end of Azure CAP validation
@@ -1423,11 +1615,12 @@ azure_tenant_check() {
         --query "[?properties.details.parent==null].name | [0]" -o tsv 2>/dev/null || true)"
 
     if [[ -z "$ROOTMG" ]]; then
-        echo -e "${YELLOW}Root management group not found.${NC}"
-        echo -e "${YELLOW}Tip: Management Group access issue detected. You are likely missing necessary Azure RBAC permissions.${NC}"
-        echo -e "${YELLOW}To view Management Groups, ensure the following:${NC}"
-        echo -e "${YELLOW}1. **Tenant Root Permission:** Your user must have an Azure RBAC role (e.g., 'Reader' or 'User Access Administrator') assigned at the **Tenant Root Scope ('/')**. This is the level *above* all subscriptions.${NC}"
-        echo -e "${YELLOW}2. **Enablement:** Management Groups must be enabled for the directory (a one-time setup).${NC}"
+        say "${RED}ERROR: Root Management Group not found.${NC}"
+        say "${YELLOW}\nTip: This usually indicates a **permissions issue** for viewing Azure Management Groups.${NC}"
+        say "${YELLOW}To successfully view Management Groups, ensure the following permissions are in place:${NC}"
+        say "${YELLOW}\n1. **Azure RBAC Roles (Required Minimum):** Your user must have at least the **'Contributor'** role assigned at the **Subscription** *and* **Management Group** level.${NC}"
+        say "${YELLOW}\n2. **Tenant Root Scope Access:** You must have an Azure RBAC role (e.g., 'Reader' or 'User Access Administrator') assigned at the **Tenant Root Scope ('/')**. This is the level *above* all subscriptions.${NC}"
+        say "${YELLOW}\n3. **Microsoft Entra ID Role (If initial setup is needed):** A **'Global Administrator'** role in Microsoft Entra ID may be required for the initial one-time enablement of Management Groups for the directory.${NC}"
         # return 2  # uncomment to fail hard
     else
         echo "Root management group: $ROOTMG"
