@@ -40,6 +40,22 @@ Run the script from the matching cloud shell. If you run it locally, install and
 - Set project for project checks: gcloud config set project <PROJECT_ID>
 - For org checks, know your numeric Organization ID (e.g., 123456789012)
 
+## Quickstart (Cloud Shell one-liner)
+
+Use this in AWS CloudShell, Azure Cloud Shell, or Google Cloud Shell to download and run the latest script. It fetches `preflight_check.sh` from the main branch, makes it executable, and starts the menu.
+
+```bash
+curl -fsSLo preflight_check.sh https://raw.githubusercontent.com/PaloAltoNetworks/cc-permissions-preflight/main/preflight_check.sh && chmod +x preflight_check.sh && ./preflight_check.sh
+```
+
+## Setup
+
+Place the script file (preflight_check.sh) in your cloud shell home directory and make it executable:
+
+```bash
+chmod +x preflight_check.sh
+```
+
 ## Usage
 
 ```bash
