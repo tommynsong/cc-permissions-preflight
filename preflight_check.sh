@@ -45,6 +45,15 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
+#handle Azure errors
+ERRORS=()
+HAS_ERRORS=false
+
+log_error() {
+    ERRORS+=("$1")
+    HAS_ERRORS=true
+}
+
 #Utils
 # Function to print a formatted header
 print_header() {
@@ -619,6 +628,7 @@ azure_subscription_check() {
     CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
     if [ -z "$CURRENT_SUBSCRIPTION" ]; then
         echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        log_error "❌ Unable to retrieve Azure subscription. Run 'az login' and try again."
         exit 1
     fi
 
@@ -665,6 +675,7 @@ azure_subscription_check() {
         echo ""
         echo -e "${RED}🔴 FAILED: One or more providers are not registered."
         echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+        log_error "❌ One or more provider is NOT registered."
     fi
     #end of resource providers check
 
@@ -729,7 +740,7 @@ azure_subscription_check() {
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
             say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-            
+            log_error "❌ Unable to read Conditional Access Policies. Likely missing permissions: Global Reader or Security Reader"
             # #print a specific error if one was captured
             # if [ -n "$ERROR_OUTPUT" ]; then
             #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
@@ -934,7 +945,22 @@ azure_subscription_check() {
         echo
         echo -e "${RED}Missing permissions:"
         printf '  - %s\n' "${missing[@]}"
-        return 1
+        log_error "❌ Missing permissions."
+        # return 1
+    fi
+
+    #final summary
+    if [ "$HAS_ERRORS" = true ]; then
+    echo -e "\n${RED}🔴 VALIDATION FAILED — Found ${#ERRORS[@]} issue(s):${NC}"
+
+    for err in "${ERRORS[@]}"; do
+        echo -e "\n$err"
+    done
+
+    echo -e "\n${YELLOW}Please fix the issues above and re-run the script.${NC}\n"
+    exit 1
+    else
+        echo -e "\n${GREEN}✅ All checks passed successfully!${NC}\n"
     fi
 }
 azure_management_group_check() {
@@ -952,6 +978,7 @@ azure_management_group_check() {
     CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
     if [ -z "$CURRENT_SUBSCRIPTION" ]; then
         echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        log_error "❌ Unable to retrieve Azure subscription. Run 'az login' and try again."
         exit 1
     fi
 
@@ -998,6 +1025,7 @@ azure_management_group_check() {
         echo ""
         echo -e "${RED}🔴 FAILED: One or more providers are not registered."
         echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+        log_error "❌ One or more provider is NOT registered."
     fi
     #end of resource providers check
 
@@ -1062,7 +1090,7 @@ azure_management_group_check() {
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
             say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-            
+            log_error "❌ Unable to read Conditional Access Policies. Likely missing permissions: Global Reader or Security Reader"            
             # #print a specific error if one was captured
             # if [ -n "$ERROR_OUTPUT" ]; then
             #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
@@ -1155,18 +1183,43 @@ azure_management_group_check() {
 
     # management group scope
     local MG_ID MG_SCOPE ASSIGNEE
-    MG_ID="${AZURE_MG_ID:-}"
-    [[ -z "$MG_ID" ]] && read -rp "Enter Management Group ID: " MG_ID
-    [[ -n "$MG_ID" ]] || { echo "Empty Management Group ID" >&2; return 2; }
+
+    # Keep asking until we get an existing MG
+    while true; do
+
+        MG_ID="${AZURE_MG_ID:-$MG_ID}"  # preserve if user already typed something
+
+        if [[ -z "$MG_ID" ]]; then
+            read -rp "Enter Management Group ID: " MG_ID
+        fi
+
+        if [[ -z "$MG_ID" ]]; then
+            echo "❌ Empty Management Group ID. Please try again." >&2
+            continue
+        fi
+
+        # Validate MG existence
+        if ! az account management-group show --name "$MG_ID" -o none 2>/dev/null; then
+            echo "❌ '$MG_ID' does not exist or you do not have permissions to view it." >&2
+            echo "Please enter an existing Management Group ID."
+            MG_ID=""   # clear to re-ask
+            continue
+        fi
+
+        # At this point the MG is valid
+        break
+    done
+
     MG_SCOPE="/providers/Microsoft.Management/managementGroups/${MG_ID}"
 
     # current principal (objectId if possible, else UPN)
     ASSIGNEE="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
     [[ -z "$ASSIGNEE" ]] && ASSIGNEE="$(az account show --query user.name -o tsv 2>/dev/null || true)"
-    [[ -n "$ASSIGNEE" ]] || { echo "Cannot resolve current principal (objectId or UPN)" >&2; return 2; }
+    [[ -n "$ASSIGNEE" ]] || { echo "❌ Cannot resolve current principal (objectId or UPN)" >&2; return 2; }
 
     # role assignments (MG scope + inherited + group-based)
     local assignments role_ids roles_json
+
     assignments="$(
         az role assignment list \
             --assignee "$ASSIGNEE" \
@@ -1174,41 +1227,51 @@ azure_management_group_check() {
             --include-inherited \
             --include-groups \
             -o json
-    )" || { echo "Failed to list role assignments at management group scope" >&2; return 2; }
+    )" || { echo "❌ Failed to list role assignments at MG scope" >&2; return 2; }
 
     role_ids="$(jq -r '.[].roleDefinitionId' <<<"$assignments" | sort -u)"
-    roles_json="$(az role definition list --scope "$MG_SCOPE" -o json)" || { echo "Failed to list role definitions" >&2; return 2; }
+
+    roles_json="$(az role definition list --scope "$MG_SCOPE" -o json)" \
+        || { echo "❌ Failed to list role definitions at MG scope" >&2; return 2; }
 
     # build effective allow sets
-    local EFFECTIVE_ACTIONS=() EFFECTIVE_NOTACTIONS=() EFFECTIVE_DATAACTIONS=() EFFECTIVE_NOTDATAACTIONS=()
+    local EFFECTIVE_ACTIONS=() EFFECTIVE_NOTACTIONS=()
+    local EFFECTIVE_DATAACTIONS=() EFFECTIVE_NOTDATAACTIONS=()
+
     while IFS= read -r rid; do
-        rid_guid="${rid##*/}"  # extract the GUID
-        role="$(jq -c --arg rid "$rid" --arg gid "$rid_guid" '
-        .[] | select(
-            .id == $rid
-            or .name == $gid
-            or (.id | endswith($gid))
-        )' <<<"$roles_json")"
         [[ -z "$rid" ]] && continue
-        local role
-        role="$(jq -c --arg rid "$rid" '.[] | select(.id==$rid or .name==$rid)' <<<"$roles_json")"
+
+        rid_guid="${rid##*/}"
+
+        role="$(jq -c --arg rid "$rid" --arg gid "$rid_guid" '
+            .[] | select(
+                .id == $rid
+                or .name == $gid
+                or (.id | endswith($gid))
+            )' <<<"$roles_json")"
+
         [[ -z "$role" ]] && continue
-        mapfile -t _a   < <(jq -r '.permissions[]?.actions[]?'         <<<"$role")
-        mapfile -t _na  < <(jq -r '.permissions[]?.notActions[]?'      <<<"$role")
-        mapfile -t _da  < <(jq -r '.permissions[]?.dataActions[]?'     <<<"$role")
-        mapfile -t _nda < <(jq -r '.permissions[]?.notDataActions[]?'  <<<"$role")
-        EFFECTIVE_ACTIONS+=("${_a[@]}");       EFFECTIVE_NOTACTIONS+=("${_na[@]}")
-        EFFECTIVE_DATAACTIONS+=("${_da[@]}");  EFFECTIVE_NOTDATAACTIONS+=("${_nda[@]}")
+
+        mapfile -t _a   < <(jq -r '.permissions[]?.actions[]?'        <<<"$role")
+        mapfile -t _na  < <(jq -r '.permissions[]?.notActions[]?'     <<<"$role")
+        mapfile -t _da  < <(jq -r '.permissions[]?.dataActions[]?'    <<<"$role")
+        mapfile -t _nda < <(jq -r '.permissions[]?.notDataActions[]?' <<<"$role")
+
+        EFFECTIVE_ACTIONS+=("${_a[@]}")
+        EFFECTIVE_NOTACTIONS+=("${_na[@]}")
+        EFFECTIVE_DATAACTIONS+=("${_da[@]}")
+        EFFECTIVE_NOTDATAACTIONS+=("${_nda[@]}")
     done <<<"$role_ids"
 
-    # de-dup
+    # Deduplicate all sets
     mapfile -t EFFECTIVE_ACTIONS        < <(printf "%s\n" "${EFFECTIVE_ACTIONS[@]}"        | awk 'NF' | sort -u)
     mapfile -t EFFECTIVE_NOTACTIONS     < <(printf "%s\n" "${EFFECTIVE_NOTACTIONS[@]}"     | awk 'NF' | sort -u)
     mapfile -t EFFECTIVE_DATAACTIONS    < <(printf "%s\n" "${EFFECTIVE_DATAACTIONS[@]}"    | awk 'NF' | sort -u)
     mapfile -t EFFECTIVE_NOTDATAACTIONS < <(printf "%s\n" "${EFFECTIVE_NOTDATAACTIONS[@]}" | awk 'NF' | sort -u)
 
     # helpers
-    _ci_match() { local pat="${1,,}" str="${2,,}"; [[ $str == $pat ]]; }  # case-insensitive glob
+    _ci_match() { local pat="${1,,}" str="${2,,}"; [[ $str == $pat ]]; }
+
     _is_mg_root() {
         local s="${1,,}" mg="/providers/microsoft.management/managementgroups/${MG_ID,,}"
         [[ "$s" == "$mg" ]]
@@ -1216,17 +1279,20 @@ azure_management_group_check() {
 
     # Deny assignments at MG scope (can block even if a role allows)
     local denies
-        denies="$(
-            az rest --method get \
-                --url "https://management.azure.com${MG_SCOPE}/providers/Microsoft.Authorization/denyAssignments?api-version=2022-04-01&%24filter=atScope()" \
-                -o json || true
-            )"
+    denies="$(
+        az rest --method get \
+            --url "https://management.azure.com${MG_SCOPE}/providers/Microsoft.Authorization/denyAssignments?api-version=2022-04-01&%24filter=atScope()" \
+            -o json || true
+    )"
 
-    declare -a EFFECTIVE_DENY_ACTIONS_SCOPED=() EFFECTIVE_DENY_DATAACTIONS_SCOPED=()
+    declare -a EFFECTIVE_DENY_ACTIONS_SCOPED=()
+    declare -a EFFECTIVE_DENY_DATAACTIONS_SCOPED=()
+
     mapfile -t EFFECTIVE_DENY_ACTIONS_SCOPED < <(
         jq -r '.value[]? | select(.properties.scope!=null)
                 | "\(.properties.scope)|\(.properties.permissions[]?.denyActions[]?)"' <<<"$denies"
     )
+
     mapfile -t EFFECTIVE_DENY_DATAACTIONS_SCOPED < <(
         jq -r '.value[]? | select(.properties.scope!=null)
                 | "\(.properties.scope)|\(.properties.permissions[]?.denyDataActions[]?)"' <<<"$denies"
@@ -1248,13 +1314,11 @@ azure_management_group_check() {
     # ask which feature sets to include
     local -a azure_mg_required=("${PERMISSIONS_AZURE_MG_BASE[@]}")
 
-    local audts=0 
-    echo "Enable additional audit/diagnostics permissions for MG (if required by your template)?"
+    local audts=0
+    echo "Enable additional audit/diagnostics permissions for MG (if required)?"
     read -rp "Answer y/n: " mg_audit
     case "$mg_audit" in
-        y|Y) azure_mg_required+=("${PERMISSIONS_AZURE_MG_AUDIT_LOGS[@]}") 
-        audts=1        
-        ;;
+        y|Y) azure_mg_required+=("${PERMISSIONS_AZURE_MG_AUDIT_LOGS[@]}"); audts=1 ;;
     esac
 
     # de-dup required
@@ -1262,23 +1326,25 @@ azure_management_group_check() {
 
     # evaluate
     local missing=()
+
     for req in "${azure_mg_required[@]}"; do
         [[ -z "$req" ]] && continue
 
-      # blocked by Deny at MG root?
+        # blocked by Deny?
         if _blocked_at_mg "$req"; then
             missing+=("$req (blocked by Deny at MG)")
             continue
         fi
 
-        # covered by Actions OR DataActions (case-insensitive, supports globs) (There is no data action in mapped permissions but were included in case it'll be needed)
+        # allowed?
         local ok=""
         for allow in "${EFFECTIVE_ACTIONS[@]}"; do
             _ci_match "$allow" "$req" && { ok=1; break; }
         done
+
         if [[ -z "$ok" ]]; then
             for allow in "${EFFECTIVE_DATAACTIONS[@]}"; do
-            _ci_match "$allow" "$req" && { ok=1; break; }
+                _ci_match "$allow" "$req" && { ok=1; break; }
             done
         fi
 
@@ -1303,9 +1369,24 @@ azure_management_group_check() {
     else
         (( audts == 0 )) && echo "" || echo "Make sure you have Global Administrator role assigned in Entra ID instance to onboard this Management Group in Cortex Cloud"
         echo
-        echo -e "${RED}Missing permissions at MG scope:${NC}"
+        echo -e "${RED}Missing permissions at MG scope:"
         printf '  - %s\n' "${missing[@]}"
-        return 1
+        log_error "❌ Missing permissions."
+        # return 1
+    fi
+
+    #final summary
+    if [ "$HAS_ERRORS" = true ]; then
+    echo -e "\n${RED}🔴 VALIDATION FAILED — Found ${#ERRORS[@]} issue(s):${NC}"
+
+    for err in "${ERRORS[@]}"; do
+        echo -e "\n$err"
+    done
+
+    echo -e "\n${YELLOW}Please fix the issues above and re-run the script.${NC}\n"
+    exit 1
+    else
+        echo -e "\n${GREEN}✅ All checks passed successfully!${NC}\n"
     fi
 }
 azure_tenant_check() {
@@ -1323,6 +1404,7 @@ azure_tenant_check() {
     CURRENT_SUBSCRIPTION=$(az account show --query "id" --output tsv 2>/dev/null)
     if [ -z "$CURRENT_SUBSCRIPTION" ]; then
         echo "❌ ERROR: Unable to retrieve the current Azure subscription. Please run 'az login' and try again."
+        log_error "❌ Unable to retrieve Azure subscription. Run 'az login' and try again."
         exit 1
     fi
 
@@ -1369,6 +1451,7 @@ azure_tenant_check() {
         echo ""
         echo -e "${RED}🔴 FAILED: One or more providers are not registered."
         echo -e "   ${YELLOW}After fixing, re-run this script to confirm.${NC}"
+        log_error "❌ One or more provider is NOT registered."
     fi
     #end of resource providers check
 
@@ -1433,7 +1516,7 @@ azure_tenant_check() {
             echo -e "  Tenant ID: ${CURRENT_TENANT}${NC}"
             say -e "\n${RED}ACTION REQUIRED: ${YELLOW}Please confirm the user (${CURRENT_USER}) has the necessary roles to read these policies (e.g., Global Reader or Security Reader) in the tenant listed above.${NC}"
             echo -e "If permissions are incorrect, the result 'Found 0 Policies' may be inaccurate.${NC}"
-            
+            log_error "❌ Unable to read Conditional Access Policies. Likely missing permissions: Global Reader or Security Reader"
             # #print a specific error if one was captured
             # if [ -n "$ERROR_OUTPUT" ]; then
             #     echo -e "${RED}API Error Snippet: ${ERROR_OUTPUT:0:300}...${NC}"
@@ -1596,7 +1679,9 @@ azure_tenant_check() {
     else
         echo -e "Result: ${RED}You are NOT a Global Administrator in this tenant.${NC}"
         echo -e "${NC}You can NOT onboard the Azure Tenant to Cortex Cloud.${NC}"
-        return 1
+        log_error "❌ User is NOT a Global Administrator.
+        You cannot onboard this tenant to Cortex Cloud."
+        # return 1
     fi
 
     echo
@@ -1665,6 +1750,20 @@ azure_tenant_check() {
                 echo "Action: An existing user with sufficient privileges must assign 'Owner' or 'Contributor' to '${UPN:-this user}' at the tenant root scope."
             fi
         fi
+    fi
+
+    #final summary
+    if [ "$HAS_ERRORS" = true ]; then
+    echo -e "\n${RED}🔴 VALIDATION FAILED — Found ${#ERRORS[@]} issue(s):${NC}"
+
+    for err in "${ERRORS[@]}"; do
+        echo -e "\n$err"
+    done
+
+    echo -e "\n${YELLOW}Please fix the issues above and re-run the script.${NC}\n"
+    exit 1
+    else
+        echo -e "\n${GREEN}✅ All checks passed successfully!${NC}\n"
     fi    
 }
 gcp_project_check() {
@@ -1928,37 +2027,8 @@ gcp_org_check() {
         json_perms="$(printf '%s\n' "${batch[@]}" | jq -R . | jq -s .)"
         payload="$(jq -n --argjson perms "$json_perms" '{permissions:$perms}')"
 
-        # pick the right resource endpoint for this batch
-        # (for now, use the first permission as a hint — keep batches grouped by type)
-        case "${batch[0]}" in
-            iam.serviceAccounts.*)
-                # requires a specific service account; pick the default or prompt
-                local SA_EMAIL
-                SA_EMAIL="$(gcloud iam service-accounts list --project "$PROJECT_ID" --format='value(email)' | head -n1)"
-                [[ -z "$SA_EMAIL" ]] && { echo "No service accounts found in project" >&2; return 3; }
-                resource="https://iam.googleapis.com/v1/projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
-                ;;
-            pubsub.topics.*)
-                # requires a topic; pick one or create a dummy name
-                local TOPIC
-                TOPIC="$(gcloud pubsub topics list --project "$PROJECT_ID" --format='value(name)' | head -n1)"
-                [[ -z "$TOPIC" ]] && TOPIC="projects/${PROJECT_ID}/topics/dummy"
-                resource="https://pubsub.googleapis.com/v1/${TOPIC}"
-                ;;
-            pubsub.subscriptions.*)
-                local SUB
-                SUB="$(gcloud pubsub subscriptions list --project "$PROJECT_ID" --format='value(name)' | head -n1)"
-                [[ -z "$SUB" ]] && SUB="projects/${PROJECT_ID}/subscriptions/dummy"
-                resource="https://pubsub.googleapis.com/v1/${SUB}"
-                ;;
-            logging.sinks.*)
-                resource="https://logging.googleapis.com/v2/projects/${PROJECT_ID}"
-                ;;
-            *)
-                # default: project-level perms
-                resource="https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}"
-                ;;
-        esac
+        # using org endpoint.
+        resource="https://cloudresourcemanager.googleapis.com/v1/organizations/${ORG_NUM}"
 
         resp="$(curl -sS -X POST \
             -H "Authorization: Bearer ${ACCESS_TOKEN}" \
@@ -1972,6 +2042,14 @@ gcp_org_check() {
             code="$(jq -r '.error.code // empty' <<<"$resp")"
             msg="$(jq -r '.error.message // empty' <<<"$resp")"
             echo -e "${RED}Error from testIamPermissions:${NC} ${msg:-unknown} (code ${code:-?})" >&2
+            # if the error is 'PERMISSION_DENIED', it means the API call worked but the user lacks permissions.
+            # qe can treat this as a "check complete" but with no permissions granted.
+            if [[ "$code" == "403" || "$code" == "7" ]]; then
+                # PERMISSION_DENIED (7) or HTTP 403
+                # add all permissions in this batch to the missing list
+                missing+=("${batch[@]}")
+                return 0
+            fi
             return 3
         fi
 
